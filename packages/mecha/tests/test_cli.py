@@ -86,3 +86,26 @@ def test_valid_minecraft_version(tmp_path: Path):
     result = run_mecha(tmp_path, "-m", "1.20", "foo.mcfunction")
 
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_undecodable_function_in_data_pack_is_reported_per_file(tmp_path: Path):
+    pack = tmp_path / "pack"
+    (pack / "data" / "demo" / "function").mkdir(parents=True)
+    (pack / "pack.mcmeta").write_text(
+        '{"pack": {"pack_format": 48, "description": "test"}}'
+    )
+    (pack / "data" / "demo" / "function" / "broken.mcfunction").write_bytes(
+        b"say \xff\xfe\n"
+    )
+    (pack / "data" / "demo" / "function" / "bad.mcfunction").write_text(
+        "say ok\nfoo bar\n"
+    )
+    (pack / "data" / "demo" / "function" / "fine.mcfunction").write_text("say fine\n")
+
+    result = run_mecha(tmp_path, "pack")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1, output
+    assert "pack/data/demo/function/broken.mcfunction" in output
+    assert "Reported 2 errors" in output
+    assert "Traceback" not in output
