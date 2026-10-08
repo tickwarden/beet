@@ -70,7 +70,7 @@ def validate(ctx: Context):
     "-j",
     "--json",
     metavar="FILENAME",
-    help="Output json.",
+    help="Write statistics to a json file (collects statistics).",
 )
 @click.version_option(
     __version__,
@@ -97,7 +97,8 @@ def mecha(
 
     config = {
         "minecraft": minecraft,
-        "require": stats * ["mecha.contrib.statistics"],
+        # AI-assisted fix (Claude, Anthropic): see the commit message.
+        "require": ["mecha.contrib.statistics"] if stats or json else [],
         "pipeline": ["mecha.cli.validate"],
         "meta": {
             "source": source,
