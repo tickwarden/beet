@@ -14,7 +14,7 @@ from typing import Optional, Tuple
 
 import click
 from beet import LATEST_MINECRAFT_VERSION, Context, DataPack, Function, run_beet
-from beet.core.utils import resolve_within
+from beet.core.utils import resolve_within, split_version
 from beet.toolchain.cli import BeetCommand, LogHandler, error_handler, message_fence
 
 from mecha import __version__
@@ -37,6 +37,20 @@ def report_decode_errors(mc: Mecha, filename: str) -> Iterator[None]:
                 filename=filename,
             )
         )
+
+
+def check_minecraft_version(
+    ctx: click.Context, param: click.Parameter, value: str
+) -> str:
+    """Reject values that cannot be parsed as a version number."""
+    # AI-assisted fix (Claude, Anthropic): see the commit message.
+    try:
+        split_version(value)
+    except ValueError:
+        raise click.BadParameter(
+            f"{value!r} is not a valid Minecraft version."
+        ) from None
+    return value
 
 
 def validate(ctx: Context):
@@ -72,6 +86,7 @@ def validate(ctx: Context):
     "--minecraft",
     metavar="VERSION",
     default=LATEST_MINECRAFT_VERSION,
+    callback=check_minecraft_version,
     help="Minecraft version.",
 )
 @click.option(
