@@ -40,3 +40,30 @@ def test_no_json_file_without_json_flag(tmp_path: Path):
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert list(tmp_path.glob("*.json")) == []
+
+
+def test_undecodable_file_is_reported_without_traceback(tmp_path: Path):
+    (tmp_path / "foo.mcfunction").write_bytes(b"say \xff\xfe\n")
+
+    result = run_mecha(tmp_path, "foo.mcfunction")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1, output
+    assert "as utf-8" in output
+    assert "foo.mcfunction" in output
+    assert "Traceback" not in output
+
+
+def test_undecodable_file_does_not_stop_directory_validation(tmp_path: Path):
+    functions = tmp_path / "functions"
+    functions.mkdir()
+    (functions / "a.mcfunction").write_bytes(b"say \xff\xfe\n")
+    (functions / "b.mcfunction").write_text("say ok\nfoo bar\n")
+    (functions / "c.mcfunction").write_text("say fine\n")
+
+    result = run_mecha(tmp_path, "functions")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 1, output
+    assert "Reported 2 errors" in output
+    assert "Traceback" not in output
