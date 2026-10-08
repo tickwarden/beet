@@ -67,3 +67,22 @@ def test_undecodable_file_does_not_stop_directory_validation(tmp_path: Path):
     assert result.returncode == 1, output
     assert "Reported 2 errors" in output
     assert "Traceback" not in output
+
+
+def test_invalid_minecraft_version_is_a_usage_error(tmp_path: Path):
+    (tmp_path / "foo.mcfunction").write_text("say hello\n")
+
+    result = run_mecha(tmp_path, "-m", "abc", "foo.mcfunction")
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 2, output
+    assert "is not a valid Minecraft version" in output
+    assert "Traceback" not in output
+
+
+def test_valid_minecraft_version(tmp_path: Path):
+    (tmp_path / "foo.mcfunction").write_text("say hello\n")
+
+    result = run_mecha(tmp_path, "-m", "1.20", "foo.mcfunction")
+
+    assert result.returncode == 0, result.stdout + result.stderr
