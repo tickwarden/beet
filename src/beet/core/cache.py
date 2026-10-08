@@ -7,6 +7,7 @@ __all__ = [
 ]
 
 
+from functools import partial
 import json
 import logging
 import shutil
@@ -15,6 +16,7 @@ from contextlib import closing, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from textwrap import indent
+from time import time
 from typing import Any, BinaryIO, ClassVar, Mapping, Optional, Set, Type, TypeVar, Union
 from urllib.request import Request, urlopen
 
@@ -105,6 +107,22 @@ class Cache:
     def json(self, value: JsonDict):
         self.index["json"] = value
 
+    def update(self, path: FileSystemPath, *, max_age: int | None = None) -> bool:
+        """Update a cached file or directory if needed."""
+        if not isinstance(path, Path):
+            path = Path(path)
+
+        if max_age is not None:
+            timestamps = self.index.setdefault("timestamps", {})
+            key = str(path.resolve().relative_to(self.directory))
+            now = int(time())
+            age = now - timestamps.get(key, 0)
+            if age > max_age:
+                timestamps[key] = now
+                return True
+
+        return not path.exists()
+
     def get_path(self, key: str) -> Path:
         """Return a unique file path associated with the given key."""
         keys = self.index.setdefault("keys", {})
@@ -134,6 +152,7 @@ class Cache:
         path: Optional[FileSystemPath] = None,
         *,
         headers: Mapping[str, str] = {},
+        max_age: int | None = None,
     ) -> Path:
         """Download and cache a given url."""
         if headers:
@@ -146,8 +165,13 @@ class Cache:
             path = self.get_path(
                 arg.get_full_url() if isinstance(arg, Request) else arg
             )
+        elif not isinstance(path, Path):
+            path = Path(path)
 
-        return self.download_manager.download(arg, path)
+        if self.update(path, max_age=max_age):
+            self.download_manager.download(arg, path)
+
+        return path
 
     def has_changed(self, *filenames: Optional[FileSystemPath]) -> bool:
         """Return whether any of the given files changed since the last check."""
@@ -375,21 +399,31 @@ class DownloadManager:
         with ThreadPoolExecutor(max_workers) as executor:
             yield cls(executor)
 
-    def download(self, arg: Union[str, Request], path: FileSystemPath) -> Path:
-        """Download and cache a given url."""
-        path = Path(path)
+    def download(self, arg: Union[str, Request], path: Path):
+        """Download a given url."""
+        if isinstance(arg, str):
+            arg = Request(arg)
 
-        if not path.is_file():
-            fileobj = path.open("wb")
-            if self.executor:
-                self.executor.submit(self.retrieve, arg, fileobj)
-            else:
-                self.retrieve(arg, fileobj)
+        if path.is_file():
+            func = partial(self.update, arg, path)
+        else:
+            func = partial(self.retrieve, arg, path.open("wb"))
 
-        return path
+        if self.executor:
+            self.executor.submit(func)
+        else:
+            func()
 
-    def retrieve(self, arg: Union[str, Request], fileobj: BinaryIO):
-        """Retrieve file from url."""
-        url = arg.get_full_url() if isinstance(arg, Request) else arg
-        with log_time('Download "%s".', url), closing(fileobj), urlopen(arg) as f:
-            fileobj.write(f.read())
+    def update(self, request: Request, path: Path):
+        """Retrieve new version of existing file from url."""
+        url = request.get_full_url()
+        with log_time(f'Download "{url}".', suppress=f'Download failed "{url}".'):
+            with urlopen(request) as f:
+                path.write_bytes(f.read())
+
+    def retrieve(self, request: Request, fileobj: BinaryIO):
+        """Retrieve missing file from url."""
+        url = request.get_full_url()
+        with log_time(f'Download "{url}".'):
+            with closing(fileobj), urlopen(request) as f:
+                fileobj.write(f.read())
